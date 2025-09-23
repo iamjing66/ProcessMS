@@ -39,7 +39,7 @@ class FileResponse(FileBase):
     current_approver_id: Optional[int]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class FileVersionBase(BaseModel):
     version: str
@@ -53,7 +53,7 @@ class FileVersionResponse(FileVersionBase):
     file_size: Optional[int]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class FileSearch(BaseModel):
     file_name: Optional[str] = None
