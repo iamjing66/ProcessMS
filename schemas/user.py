@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 
@@ -24,7 +24,7 @@ class UserResponse(UserBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class RoleBase(BaseModel):
     name: str
@@ -38,7 +38,7 @@ class RoleResponse(RoleBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class PermissionBase(BaseModel):
     code: str
@@ -49,4 +49,4 @@ class PermissionResponse(PermissionBase):
     id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
