@@ -1,52 +1,32 @@
-from pydantic import BaseModel
-from typing import Optional, List
-from datetime import datetime
+"""用户管理相关请求模型。"""
+from __future__ import annotations
 
-class UserBase(BaseModel):
-    employee_id: str
-    username: str
-    real_name: str
-    department: Optional[str] = None
-    position: Optional[str] = None
+from typing import List, Optional
 
-class UserCreate(UserBase):
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class UserCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    employee_id: str = Field(min_length=1, max_length=20)
+    username: str = Field(min_length=1, max_length=50)
     password: str
+    real_name: str = Field(min_length=1, max_length=50)
+    department: Optional[str] = Field(default=None, max_length=100)
+    position: Optional[str] = Field(default=None, max_length=100)
+    role_ids: List[int] = Field(default_factory=list)
+    is_active: bool = True
 
-class UserUpdate(BaseModel):
-    department: Optional[str] = None
-    position: Optional[str] = None
+
+class UserUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    real_name: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    department: Optional[str] = Field(default=None, max_length=100)
+    position: Optional[str] = Field(default=None, max_length=100)
     is_active: Optional[bool] = None
+    role_ids: Optional[List[int]] = None
 
-class UserResponse(UserBase):
-    id: int
-    is_active: bool
-    last_login: Optional[datetime]
-    created_at: datetime
 
-    class Config:
-        from_attributes = True
-
-class RoleBase(BaseModel):
-    name: str
-    description: Optional[str] = None
-
-class RoleCreate(RoleBase):
-    pass
-
-class RoleResponse(RoleBase):
-    id: int
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-class PermissionBase(BaseModel):
-    code: str
-    name: str
-    description: Optional[str] = None
-
-class PermissionResponse(PermissionBase):
-    id: int
-
-    class Config:
-        from_attributes = True
+class RoleIdsRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    role_ids: List[int] = Field(default_factory=list)

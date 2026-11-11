@@ -1,128 +1,158 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Form
-from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+"""认证接口：/api/auth。"""
+from __future__ import annotations
 
-from database import get_db
-from crud.user import user_crud
-from schemas.auth import Token
-from schemas.user import UserCreate
-from utils.security import verify_password, create_access_token, get_password_hash
-from dependencies.auth import get_current_user
+from fastapi import APIRouter, Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from config import settings
+from crud.user import (
+    create_user,
+    get_role_by_name,
+    get_user_by_id,
+    get_user_by_username,
+    permission_codes,
+    set_user_roles,
+)
+from database import get_db
+from dependencies.auth import get_current_user
+from models.enums import OperationType, PermissionCode
+from models.user import User
+from schemas.auth import ChangePasswordRequest, LoginRequest, RegisterRequest
+from utils.exceptions import AppError
+from utils.logging_utils import add_operation_log
+from utils.security import (
+    create_access_token,
+    hash_password,
+    validate_password,
+    verify_password,
+)
+from utils.serializers import user_item
+from utils.time import utcnow
 
 router = APIRouter()
 
-@router.post("/login", response_model=Token)
-def login(
-    username: str = Form(...),
-    password: str = Form(...),
-    db: Session = Depends(get_db)
-):
-    """用户登录 - 使用单独的Form参数而不是OAuth2PasswordRequestForm"""
-    user = user_crud.get_user_by_username(db, username)
-    if not user or not verify_password(password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户名或密码错误",
-        )
-    
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="用户已被禁用"
-        )
-    
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
-    
-    # 更新最后登录时间
-    user.last_login = datetime.utcnow()
-    db.commit()
-    
-    return {"access_token": access_token, "token_type": "bearer"}
 
-@router.post("/register")
-def register(
-    username: str = Form(...),
-    password: str = Form(...),
-    employee_id: str = Form(None),
-    real_name: str = Form(None),
-    department: str = Form("默认部门"),
-    position: str = Form("默认职位"),
-    db: Session = Depends(get_db)
+@router.post("/login")
+async def login(
+    payload: LoginRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
 ):
-    """用户注册 - 使用单独的Form参数"""
-    # 检查用户名是否已存在
-    existing_user = user_crud.get_user_by_username(db, username)
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="用户名已存在"
+    """JSON 登录：返回 JWT 与用户基础信息。"""
+    user = await get_user_by_username(db, payload.username.strip())
+    if user is None or not verify_password(payload.password, user.password_hash):
+        await add_operation_log(
+            db,
+            operation_type=OperationType.LOGIN,
+            target_type="auth",
+            target_id=user.id if user else None,
+            operator_id=user.id if user else None,
+            details=f"登录失败：{payload.username}",
+            request=request,
         )
-    
-    # 使用提供的employee_id或默认使用username
-    if not employee_id:
-        employee_id = username
-    
-    # 使用提供的real_name或默认使用username
-    if not real_name:
-        real_name = username
-    
-    # 创建用户
-    user_create = UserCreate(
+        await db.commit()
+        raise AppError(401, "AUTH_INVALID_CREDENTIALS", "用户名或密码错误")
+    if not user.is_active:
+        raise AppError(403, "AUTH_USER_DISABLED", "用户已被禁用")
+
+    token = create_access_token(user.username, user.id)
+    user.last_login = utcnow()
+    user.updated_at = utcnow()
+    await add_operation_log(
+        db,
+        operation_type=OperationType.LOGIN,
+        target_type="auth",
+        target_id=user.id,
+        operator_id=user.id,
+        details=f"登录成功：{user.real_name}",
+        request=request,
+    )
+    await db.commit()
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": int(settings.ACCESS_TOKEN_EXPIRE_MINUTES) * 60,
+        "user": user_item(user),
+    }
+
+
+@router.post("/register", status_code=201)
+async def register(
+    payload: RegisterRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """自助注册：默认分配 engineer 角色（受 ALLOW_REGISTER 开关控制）。"""
+    if not settings.ALLOW_REGISTER:
+        raise AppError(403, "REGISTER_DISABLED", "系统未开放自助注册")
+    validate_password(payload.password)
+    username = payload.username.strip()
+    employee_id = payload.employee_id.strip()
+    if await get_user_by_username(db, username) is not None:
+        raise AppError(409, "DUPLICATE_USERNAME", "用户名已存在")
+    from crud.user import get_user_by_employee_id
+
+    if await get_user_by_employee_id(db, employee_id) is not None:
+        raise AppError(409, "DUPLICATE_EMPLOYEE_ID", "工号已存在")
+    engineer_role = await get_role_by_name(db, "engineer")
+    if engineer_role is None:
+        raise AppError(500, "INTERNAL_ERROR", "系统角色未初始化，请联系管理员")
+    user = await create_user(
+        db,
         employee_id=employee_id,
         username=username,
-        password=password,
-        real_name=real_name,
-        department=department,
-        position=position
+        password_hash=hash_password(payload.password),
+        real_name=payload.real_name.strip(),
+        department=payload.department,
+        position=payload.position,
     )
-    
-    user = user_crud.create_user(db, user_create)
-    
-    return {"message": "用户注册成功", "user_id": user.id}
+    await set_user_roles(db, user.id, [engineer_role.id])
+    await add_operation_log(
+        db,
+        operation_type=OperationType.REGISTER,
+        target_type="auth",
+        target_id=user.id,
+        operator_id=user.id,
+        details=f"注册账号：{username}",
+        request=request,
+    )
+    await db.commit()
+    user = await get_user_by_id(db, user.id)
+    return user_item(user)
 
-@router.post("/change-password")
-def change_password(
-    current_password: str = Form(...),
-    new_password: str = Form(...),
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
-):
-    """修改密码"""
-    user = user_crud.get_user_by_username(db, current_user["username"])
-    if not user or not verify_password(current_password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="当前密码错误"
-        )
-    
-    user.password_hash = get_password_hash(new_password)
-    db.commit()
-    
-    return {"message": "密码修改成功"}
 
 @router.get("/me")
-def get_current_user_info(
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+async def me(current_user: User = Depends(get_current_user)):
+    """当前登录用户信息、角色与权限码。"""
+    data = user_item(current_user)
+    data["permissions"] = sorted(permission_codes(current_user))
+    return data
+
+
+@router.post("/change-password")
+async def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """获取当前用户信息"""
-    user = user_crud.get_user_by_username(db, current_user["username"])
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="用户不存在"
-        )
-    
-    return {
-        "id": user.id,
-        "username": user.username,
-        "real_name": user.real_name,
-        "employee_id": user.employee_id,
-        "department": user.department,
-        "position": user.position,
-        "last_login": user.last_login
-    }
+    """修改密码。"""
+    user = await get_user_by_id(db, current_user.id)
+    if not verify_password(payload.old_password, user.password_hash):
+        raise AppError(400, "INVALID_OLD_PASSWORD", "当前密码错误")
+    if payload.old_password == payload.new_password:
+        raise AppError(400, "SAME_PASSWORD", "新密码不能与当前密码相同")
+    validate_password(payload.new_password)
+    user.password_hash = hash_password(payload.new_password)
+    user.updated_at = utcnow()
+    await add_operation_log(
+        db,
+        operation_type=OperationType.CHANGE_PASSWORD,
+        target_type="auth",
+        target_id=user.id,
+        operator_id=user.id,
+        details="修改密码",
+        request=request,
+    )
+    await db.commit()
+    return {"message": "密码修改成功"}

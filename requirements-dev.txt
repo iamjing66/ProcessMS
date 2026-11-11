@@ -1,0 +1,13 @@
+# 开发/测试依赖（运行依赖见 requirements.txt）
+# 安装：pip install -r requirements-dev.txt
+-r requirements.txt
+
+# 测试环境显式依赖：
+# - tzdata：Windows/精简镜像无系统时区库，zoneinfo 需要该包（后端 requirements 已含，此处再次声明）
+# - greenlet：SQLAlchemy 2.0 asyncio 运行时必需（部分安装方式不会自动附带）
+tzdata>=2024.1
+greenlet>=3.0
+
+pytest>=8.0
+pytest-asyncio>=0.24
+httpx>=0.27

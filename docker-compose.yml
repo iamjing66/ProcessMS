@@ -1,0 +1,54 @@
+# 工艺文件管理系统 - Docker Compose（应用 + MySQL 8）
+# 使用方法：
+#   SECRET_KEY=<至少32位随机串> docker compose up --build -d
+# 可选覆盖：MYSQL_ROOT_PASSWORD / MYSQL_USER / MYSQL_PASSWORD
+services:
+  db:
+    image: mysql:8.0
+    container_name: processms-db
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-root-password}
+      MYSQL_DATABASE: process_file_system
+      MYSQL_USER: ${MYSQL_USER:-processms}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me-db-password}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD:-change-me-root-password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  api:
+    build: .
+    container_name: processms-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENV: prod
+      HOST: 0.0.0.0
+      PORT: 8000
+      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-processms}:${MYSQL_PASSWORD:-change-me-db-password}@db:3306/process_file_system?charset=utf8mb4
+      SECRET_KEY: ${SECRET_KEY:?请通过环境变量或 .env 设置 SECRET_KEY}
+      ACCESS_TOKEN_EXPIRE_MINUTES: "120"
+      ALLOW_REGISTER: "false"
+      SEED_DEMO_USERS: "false"
+      SEED_PASSWORD: ""
+      ENABLE_SCHEDULER: "true"
+      CATALOG_TZ: Asia/Shanghai
+      UPLOAD_DIR: /app/uploads
+      WEB_DIR: /app/web
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:8000,http://localhost:8000}
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads_data:/app/uploads
+
+volumes:
+  mysql_data:
+  uploads_data:
