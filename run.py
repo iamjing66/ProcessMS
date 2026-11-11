@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""
-工艺文件管理系统启动脚本
-可以直接运行: python run.py
-"""
+"""本地启动脚本：python run.py（默认读取 .env 配置）。"""
+from __future__ import annotations
 
 import uvicorn
-from main import app
+
+from config import settings
 
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
-        host="127.0.0.1",
-        port=8000,
-        reload=True,
-        log_level="info"
+        host=settings.HOST,
+        port=int(settings.PORT),
+        reload=bool(settings.RELOAD),
+        log_level=str(settings.LOG_LEVEL).lower(),
+        workers=None if settings.RELOAD else 1,
     )
