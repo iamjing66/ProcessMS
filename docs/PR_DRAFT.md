@@ -78,12 +78,12 @@
 1. **Docker 未实测构建**：Dockerfile/docker-compose.yml 已提供（另含 .dockerignore、.github/workflows/ci.yml；本机无法验证构建，见 REVIEW P2-8），README 已补充启动/MySQL/演示说明；验收以本地 venv + SQLite 为准。
 2. **MySQL 运行路径未实测**：本机无 MySQL 服务，依赖为 aiomysql（asyncmy 可选）；SQLite 全流程已验证，生产切换需按 `.env.example` 配置并在目标环境复核。无 Alembic，存量库需重建或手工 DDL。
 3. **审批并发**：已闭环（REVIEW IR-01 Closed）——条件更新 + rowcount 校验 + 单事务，并发用例通过。
-9. **定时/CI/测试加速**（REVIEW §11.4）：每日 0 点真实触发未等待（纯函数单测覆盖）；上传冷却为进程内字典，多 worker 不共享；GitHub Actions 未在 GitHub 实跑（本地等价命令通过）；测试 bcrypt cost=4 仅加速，生产 cost=12。
 4. **reject 权限分支**：已按决策实现——pass 分支要求 review/approve，reject 分支要求 reject，且须为当前步骤审批人；用例已覆盖。
 5. 每日 0 点调度为进程内单任务，**单 worker 部署**；多 worker 需 `ENABLE_SCHEDULER=false` 或外置定时任务（README 说明）。
 6. 范围外（已写入 PLAN §1.3）：PDF/Office 转换、通知、单用户互踢、分片上传、流程可视化配置、审批人自动改派、工序分工、编制人/上传人分离、CSV 导出、Alembic。
 7. 快照历史保留不清理；旧快照中已更新/软删文件的下载链接会 404（下次刷新剔除），演示需说明。
 8. 登录失败无锁定/限流，上传仅 2s 冷却；生产建议网关层限流（记录为 P2）。
+9. **定时/CI/测试加速**（REVIEW §11.4）：每日 0 点真实触发未等待（纯函数单测覆盖）；上传冷却为进程内字典，多 worker 不共享；GitHub Actions 未在 GitHub 实跑（本地等价命令通过）；测试 bcrypt cost=4 仅加速，生产 cost=12。
 
 ## 6. 评审建议（Reviewer Checklist）
 
